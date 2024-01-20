@@ -1,0 +1,99 @@
+# import the data set
+library(readr)
+data <- read_csv("C:/Users/jyy20/Desktop/fallB/Predictive and casual analyst/Assignment/3/Student Data 7.csv")
+View(data)
+
+# familiarize and cleaning the data
+data_B <- data
+str(data_B)
+summary(data_B)
+
+set.seed(57)
+isTraining = runif(nrow(data_B)) < 0.8
+trainingData = subset(data_B, isTraining)
+validationData = subset(data_B, !isTraining)
+
+# descriptive analysis
+library(corrplot)
+cor_matrix <- cor(data_B)
+corrplot(cor_matrix)
+
+options(scipen=999)
+summary(lm(card~.,data = data_B))
+anova(lm(card~.,data = data_B))
+# "reports" is the most important variable to the approval for a credit card
+# "share", owner", "income", "active", "dependents", "age" are next
+# not significance: age, expenditure, selemp, months, majorcards
+
+# linear
+#non-interaction
+basicSubset1 = regsubsets(card~.,data = data_B, really.big=T)
+basicSummary1 = summary(basicSubset1)
+bestBIC = which.min(basicSummary1$bic)
+coef(basicSubset1, bestBIC)
+# reports, income, share, owner, active
+
+#interaction
+basicSubset = regsubsets(card~.*.,data = data_B, really.big=T)
+basicSummary = summary(basicSubset)
+bestBIC = which.min(basicSummary$bic)
+coef(basicSubset, bestBIC)
+# reports, income, share, expenditure, age*owner, income*share, income*expenditure, share*expenditure
+
+#predictive modeling and tuning
+getRMSE = function(thisModel){
+  mean((predict(thisModel,validationData)-validationData$card)^2)^.5
+}
+
+# linear models
+getRMSE(lm(card~reports+income+share+owner+active, data = trainingData))# 0.3965835
+getRMSE(lm(card~., data = trainingData))# 0.3966381
+
+getRMSE(lm(card~reports+income+share+expenditure+age*owner+income*share+income*expenditure+share*expenditure, data = trainingData))# 0.3794403
+getRMSE(lm(card~.^2, data = trainingData)) # 0.3790041
+getRMSE(lm(card~.^2-age-expenditure-selfemp-months-majorcards, data = trainingData))# 0.3794765
+getRMSE(lm(card~.^2+poly(age,5), data = trainingData))# 0.3789614
+getRMSE(lm(card~.^2+poly(age,5)-majorcards, data = trainingData))# 0.3789533
+getRMSE(lm(card~.^2+poly(age,5)-selfemp, data = trainingData)) #0.3788729
+
+# non-linear models
+library(earth)
+getRMSE(earth(card~.,data=trainingData))# 0.3758
+getRMSE(earth(card~.^2,data=trainingData))# 0.375706
+getRMSE(earth(card~.,data=trainingData, degree = 2))# 0.3752791
+getRMSE(earth(card~.,data=trainingData,degree=2,thres=.0001))# 0.3751696
+getRMSE(earth(card~.^2,data=trainingData,degree=2,thres=.0001))# 0.3760451
+
+########################################################################
+#Implementing K-Fold Cross Validation
+########################################################################
+
+getDataKFoldRMSE = function(testFit){
+  set.seed(2001)
+  totalFold = 5
+  foldNum = floor(runif(nrow(data_B))*totalFold)+1
+  
+  thisModelRMSE = rep(NA,totalFold)
+  for(thisFold in 1:totalFold){
+    trainingData = subset(data_B,foldNum!=thisFold)
+    validationData = subset(data_B,foldNum==thisFold)
+    thisModel = update(testFit,data=trainingData)
+    thisFit = mean((predict(thisModel,validationData) - validationData$card)^2)^.5
+    thisModelRMSE[thisFold] = thisFit
+  }
+  return(mean(thisModelRMSE))
+}
+
+# linear
+getDataKFoldRMSE(lm(card~.^2+poly(age,5)-majorcards, data = data_B)) # 0.3781264
+getDataKFoldRMSE(lm(card~.^2+poly(age,5), data = data_B))# 0.3781323
+getDataKFoldRMSE(lm(card~.^2+poly(age,5)-selfemp, data = data_B))# 0.3780533
+
+# non-linear
+getDataKFoldRMSE(earth(card~.^2,data=data_B))# 0.3748582
+getDataKFoldRMSE(earth(card~.,data=data_B, degree = 2)) #0.3746805
+getDataKFoldRMSE(earth(card~.,data=data_B,degree=2,thres=.0001))#0.3745296
+
+#Last line should store a model in model1B as below
+model1B <- earth(card~.,data=data_B,degree=2,thres=.0001)
+```
